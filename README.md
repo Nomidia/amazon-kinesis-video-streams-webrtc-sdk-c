@@ -185,7 +185,7 @@ Choose Start viewer to start live video streaming of the sample H264/Opus frames
             "kinesisvideo:GetIceServerConfig",
             "kinesisvideo:ConnectAsMaster",
           ],
-          "Resource":"arn:aws:kinesisvideo:*:*:channel/\${credentials-iot:ThingName}/*"
+          "Resource":"arn:aws:kinesisvideo:*:*:channel/${credentials-iot:ThingName}/*"
       }
    ]
 }
@@ -225,6 +225,14 @@ where, `configuration` is of type `RtcConfiguration` in the function that calls 
 Doing this will make sure that `createCertificateAndKey() would not execute since a certificate is already available.`
 ```
 
+## Provide Hardware Entropy Source
+
+In the mbedTLS version, the SDK uses /dev/urandom on Unix and CryptGenRandom API on Windows to get a strong entropy source. On some systems, these APIs might not be available. So, it's **strongly suggested** that you bring your own hardware entropy source. To do this, you need to follow these steps:
+
+1. Uncomment `MBEDTLS_ENTROPY_HARDWARE_ALT` in configs/config_mbedtls.h
+2. Write your own entropy source implementation by following this function signature: https://github.com/ARMmbed/mbedtls/blob/v2.25.0/include/mbedtls/entropy_poll.h#L81-L92
+3. Include your implementation source code in the linking process
+
 ## DEBUG
 ### Getting the SDPs
 If you would like to print out the SDPs, run this command:
@@ -242,7 +250,7 @@ You can also change settings such as buffer size, number of log files for rotati
 
 ## Clang Checks
 This SDK has clang format checks enforced in builds. In order to avoid re-iterating and make sure your code
-complies, use the `check-clang.sh` to check for compliance and `clang-format.sh` to ensure compliance.
+complies, use the `scripts/check-clang.sh` to check for compliance and `scripts/clang-format.sh` to ensure compliance.
 
 ## Tracing high memory and/or cpu usage
 If you would like to specifically find the code path that causes high memory and/or cpu usage, you need to recompile the SDK with this command:

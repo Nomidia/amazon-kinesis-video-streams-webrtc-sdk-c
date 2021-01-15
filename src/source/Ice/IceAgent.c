@@ -10,10 +10,11 @@ typedef enum {
     SDP_ICE_CANDIDATE_PARSER_STATE_FOUNDATION = 0,
     SDP_ICE_CANDIDATE_PARSER_STATE_COMPONENT,
     SDP_ICE_CANDIDATE_PARSER_STATE_PROTOCOL,
-    SDP_ICE_CANDIDATE_PARSER_STATE_PORIORITY,
+    SDP_ICE_CANDIDATE_PARSER_STATE_PRIORITY,
     SDP_ICE_CANDIDATE_PARSER_STATE_IP,
     SDP_ICE_CANDIDATE_PARSER_STATE_PORT,
-    SDP_ICE_CANDIDATE_PARSER_STATE_TYPE,
+    SDP_ICE_CANDIDATE_PARSER_STATE_TYPE_ID,
+    SDP_ICE_CANDIDATE_PARSER_STATE_TYPE_VAL,
     SDP_ICE_CANDIDATE_PARSER_STATE_OTHERS
 } SDP_ICE_CANDIDATE_PARSER_STATE;
 
@@ -317,13 +318,15 @@ STATUS iceAgentAddRemoteCandidate(PIceAgent pIceAgent, PCHAR pIceCandidateString
     BOOL locked = FALSE;
     PIceCandidate pIceCandidate = NULL, pDuplicatedIceCandidate = NULL, pLocalIceCandidate = NULL;
     PCHAR curr, tail, next;
-    UINT32 tokenLen, portValue, remoteCandidateCount, len;
+    UINT32 tokenLen = 0, portValue = 0, remoteCandidateCount = 0, len = 0, priority = 0;
     BOOL freeIceCandidateIfFail = TRUE;
-    BOOL foundIp = FALSE, foundPort = FALSE;
+    BOOL foundIp = FALSE;
+    BOOL foundType = FALSE;
     CHAR ipBuf[KVS_IP_ADDRESS_STRING_BUFFER_LEN];
     KvsIpAddress candidateIpAddr;
     PDoubleListNode pCurNode = NULL;
     SDP_ICE_CANDIDATE_PARSER_STATE state;
+    ICE_CANDIDATE_TYPE iceCandidateType = ICE_CANDIDATE_TYPE_HOST;
 
     CHK(pIceAgent != NULL && pIceCandidateString != NULL, STATUS_NULL_ARG);
     CHK(!IS_EMPTY_STRING(pIceCandidateString), STATUS_INVALID_ARG);
@@ -340,13 +343,15 @@ STATUS iceAgentAddRemoteCandidate(PIceAgent pIceAgent, PCHAR pIceCandidateString
     tail = pIceCandidateString + STRLEN(pIceCandidateString);
     state = SDP_ICE_CANDIDATE_PARSER_STATE_FOUNDATION;
 
-    while ((next = STRNCHR(curr, tail - curr, ' ')) != NULL && !(foundIp && foundPort)) {
+    while ((next = STRNCHR(curr, tail - curr, ' ')) != NULL && !foundType) {
         tokenLen = (UINT32)(next - curr);
 
         switch (state) {
             case SDP_ICE_CANDIDATE_PARSER_STATE_FOUNDATION:
             case SDP_ICE_CANDIDATE_PARSER_STATE_COMPONENT:
-            case SDP_ICE_CANDIDATE_PARSER_STATE_PORIORITY:
+                break;
+            case SDP_ICE_CANDIDATE_PARSER_STATE_PRIORITY:
+                STRTOUI32(curr, next, 10, &priority);
                 break;
             case SDP_ICE_CANDIDATE_PARSER_STATE_PROTOCOL:
                 CHK(STRNCMPI("tcp", curr, tokenLen) != 0, STATUS_ICE_CANDIDATE_STRING_IS_TCP);
@@ -365,7 +370,26 @@ STATUS iceAgentAddRemoteCandidate(PIceAgent pIceAgent, PCHAR pIceCandidateString
             case SDP_ICE_CANDIDATE_PARSER_STATE_PORT:
                 CHK_STATUS(STRTOUI32(curr, curr + tokenLen, 10, &portValue));
                 candidateIpAddr.port = htons(portValue);
-                foundPort = TRUE;
+                break;
+            case SDP_ICE_CANDIDATE_PARSER_STATE_TYPE_ID:
+                if (STRNCMPI("typ", curr, tokenLen) != 0) {
+                    DLOGE("Can not find candidate typ.");
+                    CHK(FALSE, STATUS_ICE_CANDIDATE_STRING_MISSING_TYPE);
+                }
+                break;
+            case SDP_ICE_CANDIDATE_PARSER_STATE_TYPE_VAL:
+                if (STRNCMPI("host", curr, tokenLen) == 0) {
+                    iceCandidateType = ICE_CANDIDATE_TYPE_HOST;
+                } else if (STRNCMPI("srflx", curr, tokenLen) == 0) {
+                    iceCandidateType = ICE_CANDIDATE_TYPE_SERVER_REFLEXIVE;
+                } else if (STRNCMPI("prflx", curr, tokenLen) == 0) {
+                    iceCandidateType = ICE_CANDIDATE_TYPE_PEER_REFLEXIVE;
+                } else if (STRNCMPI("relay", curr, tokenLen) == 0) {
+                    iceCandidateType = ICE_CANDIDATE_TYPE_RELAYED;
+                } else {
+                    DLOGW("unknown candidate type.");
+                }
+                foundType = TRUE;
                 break;
             default:
                 DLOGW("supposedly does not happen.");
@@ -375,7 +399,6 @@ STATUS iceAgentAddRemoteCandidate(PIceAgent pIceAgent, PCHAR pIceCandidateString
         curr = next + 1;
     }
 
-    CHK(foundPort, STATUS_ICE_CANDIDATE_STRING_MISSING_PORT);
     CHK(foundIp, STATUS_ICE_CANDIDATE_STRING_MISSING_IP);
 
     CHK_STATUS(findCandidateWithIp(&candidateIpAddr, pIceAgent->remoteCandidates, &pDuplicatedIceCandidate));
@@ -386,6 +409,8 @@ STATUS iceAgentAddRemoteCandidate(PIceAgent pIceAgent, PCHAR pIceCandidateString
     pIceCandidate->isRemote = TRUE;
     pIceCandidate->ipAddress = candidateIpAddr;
     pIceCandidate->state = ICE_CANDIDATE_STATE_VALID;
+    pIceCandidate->priority = priority;
+    pIceCandidate->iceCandidateType = iceCandidateType;
     CHK_STATUS(doubleListInsertItemHead(pIceAgent->remoteCandidates, (UINT64) pIceCandidate));
     freeIceCandidateIfFail = FALSE;
 
@@ -2583,8 +2608,12 @@ VOID iceAgentLogNewCandidate(PIceCandidate pIceCandidate)
 
     if (pIceCandidate != NULL) {
         getIpAddrStr(&pIceCandidate->ipAddress, ipAddr, ARRAY_SIZE(ipAddr));
-        if (pIceCandidate->iceCandidateType == ICE_CANDIDATE_TYPE_RELAYED && pIceCandidate->pTurnConnection->protocol == KVS_SOCKET_PROTOCOL_UDP) {
-            protocol = "TCP";
+        if (pIceCandidate->iceCandidateType == ICE_CANDIDATE_TYPE_RELAYED) {
+            if (pIceCandidate->pTurnConnection == NULL) {
+                protocol = "NA";
+            } else if (pIceCandidate->pTurnConnection->protocol == KVS_SOCKET_PROTOCOL_UDP) {
+                protocol = "TCP";
+            }
         }
         DLOGD("New %s ice candidate discovered. Id: %s. Ip: %s:%u. Type: %s. Protocol: %s.", pIceCandidate->isRemote ? "remote" : "local",
               pIceCandidate->id, ipAddr, (UINT16) getInt16(pIceCandidate->ipAddress.port),

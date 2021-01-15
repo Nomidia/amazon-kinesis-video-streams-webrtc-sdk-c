@@ -196,6 +196,7 @@ extern "C" {
 #define STATUS_ICE_NO_AVAILABLE_ICE_CANDIDATE_PAIR                         STATUS_ICE_BASE + 0x00000026
 #define STATUS_TURN_CONNECTION_PEER_NOT_USABLE                             STATUS_ICE_BASE + 0x00000027
 #define STATUS_ICE_SERVER_INDEX_INVALID                                    STATUS_ICE_BASE + 0x00000028
+#define STATUS_ICE_CANDIDATE_STRING_MISSING_TYPE                           STATUS_ICE_BASE + 0x00000029
 /*!@} */
 
 /////////////////////////////////////////////////////
@@ -289,6 +290,7 @@ extern "C" {
 #define STATUS_SIGNALING_RECONNECT_FAILED                          STATUS_SIGNALING_BASE + 0x00000030
 #define STATUS_SIGNALING_DELETE_CALL_FAILED                        STATUS_SIGNALING_BASE + 0x00000031
 #define STATUS_SIGNALING_INVALID_METRICS_VERSION                   STATUS_SIGNALING_BASE + 0x00000032
+#define STATUS_SIGNALING_INVALID_CLIENT_INFO_CACHE_FILE_PATH_LEN   STATUS_SIGNALING_BASE + 0x00000033
 
 /*!@} */
 
@@ -475,7 +477,7 @@ extern "C" {
 /**
  * Version of SignalingClientInfo structure
  */
-#define SIGNALING_CLIENT_INFO_CURRENT_VERSION 0
+#define SIGNALING_CLIENT_INFO_CURRENT_VERSION 1
 
 /**
  * Version of SignalingClientCallbacks structure
@@ -1140,6 +1142,11 @@ typedef struct {
     UINT32 loggingLevel;                            //!< Verbosity level for the logging. One of LOG_LEVEL_XXX
                                                     //!< values or the default verbosity will be assumed. Currently,
                                                     //!< default value is LOG_LEVEL_WARNING
+    PCHAR cacheFilePath;                            //!< File cache path override. The default
+                                                    //!< path is "./.SignalingCache_vN" which might not work for
+                                                    //!< devices which have read only partition where the code is
+                                                    //!< located. For default value or when file caching is not
+                                                    //!< being used this value can be NULL or point to an EMPTY_STRING.
 } SignalingClientInfo, *PSignalingClientInfo;
 
 /**
@@ -1196,8 +1203,10 @@ typedef struct {
 
     SIGNALING_API_CALL_CACHE_TYPE cachingPolicy; //!< Backend API call caching policy
 
-    BOOL asyncIceServerConfig; //!< When creating channel synchronously, do not await for the ICE
-                               //!< server configurations before returning from the call.
+    BOOL asyncIceServerConfig; //!< This parameter has no effect any longer. All ICE config retrieving
+                               //!< is done reactively when needed which will simplify the processing
+                               //!< and will help with issues on a small footprint platforms
+
 } ChannelInfo, *PChannelInfo;
 
 /**
@@ -1272,7 +1281,7 @@ typedef STATUS (*SignalingClientStateChangedFunc)(UINT64, SIGNALING_CLIENT_STATE
 typedef struct {
     UINT32 version;                                       //!< Current version of the structure
     UINT64 customData;                                    //!< Custom data passed by the caller
-    SignalingClientMessageReceivedFunc messageReceivedFn; //!< Callback registeration for received SDP
+    SignalingClientMessageReceivedFunc messageReceivedFn; //!< Callback registration for received SDP
     SignalingClientErrorReportFunc errorReportFn;         //!<  Error reporting function. This is an optional member
     SignalingClientStateChangedFunc stateChangeFn;        //!< Signaling client state change callback
 } SignalingClientCallbacks, *PSignalingClientCallbacks;
