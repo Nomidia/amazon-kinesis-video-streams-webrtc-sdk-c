@@ -718,7 +718,6 @@ STATUS iceAgentShutdown(PIceAgent pIceAgent)
     PIceCandidate pLocalCandidate = NULL;
     UINT32 i;
     UINT64 turnShutdownTimeout;
-    const UINT64 shortSleep = 50 * HUNDREDS_OF_NANOS_IN_A_MILLISECOND;
     PTurnConnection turnConnections[KVS_ICE_MAX_RELAY_CANDIDATE_COUNT];
     UINT32 turnConnectionCount = 0;
 
@@ -762,14 +761,13 @@ STATUS iceAgentShutdown(PIceAgent pIceAgent)
 
     turnShutdownTimeout = GETTIME() + KVS_ICE_TURN_CONNECTION_SHUTDOWN_TIMEOUT;
     while (!turnShutdownCompleted && GETTIME() < turnShutdownTimeout) {
-        turnShutdownCompleted = TRUE;
-        for (i = 0; i < turnConnectionCount; ++i) {
+        for (i = 0, turnShutdownCompleted = TRUE; turnShutdownCompleted && i < turnConnectionCount; ++i) {
             if (!turnConnectionIsShutdownComplete(turnConnections[i])) {
                 turnShutdownCompleted = FALSE;
             }
         }
 
-        THREAD_SLEEP(shortSleep);
+        THREAD_SLEEP(KVS_ICE_SHORT_CHECK_DELAY);
     }
 
     if (!turnShutdownCompleted) {
@@ -2604,17 +2602,30 @@ CleanUp:
 VOID iceAgentLogNewCandidate(PIceCandidate pIceCandidate)
 {
     CHAR ipAddr[KVS_IP_ADDRESS_STRING_BUFFER_LEN];
-    PCHAR protocol = "UDP";
+    PCHAR protocol = "UNKNOWN";
 
     if (pIceCandidate != NULL) {
         getIpAddrStr(&pIceCandidate->ipAddress, ipAddr, ARRAY_SIZE(ipAddr));
         if (pIceCandidate->iceCandidateType == ICE_CANDIDATE_TYPE_RELAYED) {
             if (pIceCandidate->pTurnConnection == NULL) {
                 protocol = "NA";
-            } else if (pIceCandidate->pTurnConnection->protocol == KVS_SOCKET_PROTOCOL_UDP) {
-                protocol = "TCP";
+            } else {
+                switch (pIceCandidate->pTurnConnection->protocol) {
+                    case KVS_SOCKET_PROTOCOL_TCP:
+                        protocol = "TCP";
+                        break;
+                    case KVS_SOCKET_PROTOCOL_UDP:
+                        protocol = "UDP";
+                        break;
+                    case KVS_SOCKET_PROTOCOL_NONE:
+                        protocol = "NONE";
+                        break;
+                    default:
+                        break;
+                }
             }
         }
+
         DLOGD("New %s ice candidate discovered. Id: %s. Ip: %s:%u. Type: %s. Protocol: %s.", pIceCandidate->isRemote ? "remote" : "local",
               pIceCandidate->id, ipAddr, (UINT16) getInt16(pIceCandidate->ipAddress.port),
               iceAgentGetCandidateTypeStr(pIceCandidate->iceCandidateType), protocol);
