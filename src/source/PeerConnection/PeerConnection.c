@@ -349,7 +349,7 @@ STATUS onFrameDroppedFunc(UINT64 customData, UINT16 startIndex, UINT16 endIndex,
     UINT64 hashValue = 0;
     PRtpPacket pPacket = NULL;
     PKvsRtpTransceiver pTransceiver = (PKvsRtpTransceiver) customData;
-    DLOGW("Frame with timestamp %ld is dropped!", timestamp);
+    DLOGW("Frame with timestamp %u is dropped!", timestamp);
     CHK(pTransceiver != NULL, STATUS_NULL_ARG);
     retStatus = hashTableGet(pTransceiver->pJitterBuffer->pPkgBufferHashTable, startIndex, &hashValue);
     pPacket = (PRtpPacket) hashValue;
